@@ -1,6 +1,6 @@
 from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.security import OAuth2PasswordBearer
+from fastapi.security import OAuth2PasswordBearer, HTTPBearer
 from pydantic import BaseModel, EmailStr
 from sqlalchemy.orm import Session
 import os
@@ -22,7 +22,7 @@ client = OpenAI(
 
 Base.metadata.create_all(bind=engine)
 
-oauth2_scheme = OAuth2PasswordBearer(tokenUrl="/login/")
+oauth2_scheme = HTTPBearer()
 
 app = FastAPI()
 
