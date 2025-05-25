@@ -88,6 +88,12 @@ def send_email(to_address: str, subject: str, body_text: str):
     except ClientError as e:
         raise Exception(f"Email failed to send: {e.response['Error']['Message']}")
 
+@app.middleware("http")
+async def log_requests(request, call_next):
+    print(f"Incoming request: {request.method} {request.url}")
+    response = await call_next(request)
+    return response
+
 @app.post("/register/")
 async def register_user(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user.email).first()
