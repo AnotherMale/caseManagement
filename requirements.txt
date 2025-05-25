@@ -25,6 +25,7 @@ fastapi
 fastapi-cli
 fastapi-users
 filelock
+fitz
 fsspec
 greenlet
 h11
@@ -96,10 +97,8 @@ SQLAlchemy
 starlette
 sympy
 tokenizers
-torch
 tqdm
 traits
-transformers
 typer
 typing-inspection
 typing_extensions
