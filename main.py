@@ -28,7 +28,7 @@ app = FastAPI()
 
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],
+    allow_origins=["https://case-management-frontend.s3-website-us-east-1.amazonaws.com"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
