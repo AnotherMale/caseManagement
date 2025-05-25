@@ -2,7 +2,6 @@ from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer
 from pydantic import BaseModel, EmailStr
-from transformers import pipeline
 from sqlalchemy.orm import Session
 import os
 import fitz
@@ -17,7 +16,9 @@ from collections import defaultdict
 
 user_uploaded_text = defaultdict(str)
 
-client = OpenAI(api_key=os.environ["OPENAI_API_KEY"])
+client = OpenAI(
+    api_key="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"
+)
 
 Base.metadata.create_all(bind=engine)
 
@@ -35,8 +36,6 @@ app.add_middleware(
 
 UPLOAD_FOLDER = "./uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
-
-summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 
 class UserCreate(BaseModel):
     email: str
@@ -73,20 +72,6 @@ def clean_text(text):
     text = re.sub(r'\s+', ' ', text)
     text = re.sub(r'[^\x00-\x7F]+', '', text)
     return text.strip()
-
-def summarize_text(text):
-    input_text = text[:1024]
-    input_length = len(input_text.split())
-
-    max_length = max(50, min(150, input_length // 2))
-    min_length = max(25, max_length // 2)
-
-    return summarizer(
-        input_text,
-        max_length=max_length,
-        min_length=min_length,
-        do_sample=False
-    )[0]["summary_text"]
 
 def send_email(to_address: str, subject: str, body_text: str):
     ses = boto3.client('ses', region_name='us-east-1')
@@ -132,24 +117,6 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
     return user
-
-@app.post("/upload/")
-async def upload_pdfs(files: list[UploadFile] = File(...), token: str = Depends(oauth2_scheme)):
-    all_text = ""
-    for file in files:
-        file_path = os.path.join(UPLOAD_FOLDER, file.filename)
-        with open(file_path, "wb") as f:
-            f.write(await file.read())
-        extracted_text = extract_text_from_pdf(file_path)
-        cleaned_text = clean_text(extracted_text)
-        all_text += f"--- Start of {file.filename} ---\n{cleaned_text}\n\n"
-    payload = verify_access_token(token)
-    if payload is None:
-        raise HTTPException(status_code=401, detail="Invalid token")
-    user_email = payload["sub"]
-    user_uploaded_text[user_email] = all_text
-    summary = summarize_text(all_text)
-    return {"summary": summary}
 
 @app.post("/upload-openai/")
 async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = Depends(oauth2_scheme)):
