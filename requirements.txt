@@ -25,7 +25,6 @@ fastapi
 fastapi-cli
 fastapi-users
 filelock
-fitz
 fsspec
 greenlet
 h11
