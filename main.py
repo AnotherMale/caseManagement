@@ -149,9 +149,9 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
                     {
                         "role": "system",
                         "content": (
-                            "You are a helpful assistant. Please extract the following fields: "
-                            "incident number, system, date, reporter, priority, responsible area, and solution "
-                            "from the text below. Then provide a brief summary of the text.\n\n" + cleaned_text
+                            "Extract the following fields from the error ticket: "
+                            "incident number, system, date, reporter, priority, responsible area, and solution. "
+                            "Then provide a brief summary of the following text:\n\n" + cleaned_text
                         )
                     }
                 ],
@@ -173,7 +173,7 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
                 {
                     "role": "system",
                     "content": (
-                        "You are a helpful assistant. Summarize the following consolidated text from multiple documents:\n\n" + all_text
+                        "Summarize the following consolidated text from multiple error tickets:\n\n" + all_text
                     )
                 }
             ],
@@ -197,7 +197,7 @@ async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_s
     context = user_uploaded_text.get(user_email, "")
     truncated_context = context[:4000]
     prompt_messages = [
-        {"role": "system", "content": "You are a helpful legal assistant. Use the uploaded document context to answer questions accurately."},
+        {"role": "system", "content": "You are a helpful assistant. Use the uploaded document context to answer questions accurately."},
         {"role": "user", "content": f"Document context:\n{truncated_context}"},
         {"role": "user", "content": chat_request.user_message}
     ]
