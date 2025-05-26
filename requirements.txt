@@ -3,7 +3,7 @@ annotated-types
 anyio
 argon2-cffi
 argon2-cffi-bindings
-bcrypt
+bcrypt==4.0.1
 boto3
 botocore
 certifi
