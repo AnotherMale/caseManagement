@@ -190,7 +190,7 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
 
 @app.post("/chat/")
 async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_scheme)):
-    payload = verify_access_token(token)
+    payload = verify_access_token(token.credentials)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     user_email = payload["sub"]
