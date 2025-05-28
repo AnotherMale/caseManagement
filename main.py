@@ -150,7 +150,7 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
                         "role": "system",
                         "content": (
                             "Extract the following fields from the error ticket: "
-                            "incident number, system, date, reporter, priority, responsible area, and solution. "
+                            "incident number, system, date, reporter, priority, responsible area, problem, and solution. "
                             "Then provide a brief summary of the following text:\n\n" + cleaned_text
                         )
                     }
