@@ -6,13 +6,15 @@ from sqlalchemy.orm import Session
 import os
 import fitz
 import re
-from openai import OpenAI
 from database import SessionLocal, Base, engine
 from models import User
 from auth import hash_password, verify_password, create_access_token, verify_access_token
 import boto3
 from botocore.exceptions import ClientError
 from collections import defaultdict
+from qdrant_client import QdrantClient
+from qdrant_client.http.models import Distance, VectorParams, PointStruct
+from openai import OpenAI, OpenAIError
 
 user_uploaded_text = defaultdict(str)
 
@@ -39,6 +41,13 @@ app.add_middleware(
 
 UPLOAD_FOLDER = "./uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+qdrant = QdrantClient(":memory:")
+collection_name = "user_docs"
+qdrant.recreate_collection(
+    collection_name=collection_name,
+    vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
+)
 
 class UserCreate(BaseModel):
     email: str
@@ -90,6 +99,23 @@ def send_email(to_address: str, subject: str, body_text: str):
         return response
     except ClientError as e:
         raise Exception(f"Email failed to send: {e.response['Error']['Message']}")
+
+def embed_text(text: str):
+    response = client.embeddings.create(
+        model="text-embedding-3-small",
+        input=text
+    )
+    return response.data[0].embedding
+
+def retrieve_relevant_docs(user_email: str, query: str):
+    query_embedding = embed_text(query)
+    search_result = qdrant.search(
+        collection_name=collection_name,
+        query_vector=query_embedding,
+        limit=3,
+        filter={"must": [{"key": "user_email", "match": {"value": user_email}}]}
+    )
+    return [hit.payload["summary"] for hit in search_result]
 
 @app.middleware("http")
 async def log_requests(request, call_next):
@@ -194,11 +220,11 @@ async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_s
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     user_email = payload["sub"]
-    context = user_uploaded_text.get(user_email, "")
-    truncated_context = context[:4000]
+    relevant_docs = retrieve_relevant_docs(user_email, chat_request.user_message)
+    context = "\n\n".join(relevant_docs)
     prompt_messages = [
-        {"role": "system", "content": "You are a helpful assistant. Use the uploaded document context to answer questions accurately."},
-        {"role": "user", "content": f"Document context:\n{truncated_context}"},
+        {"role": "system", "content": "You are a helpful assistant. Use the following user documents to answer questions accurately:"},
+        {"role": "user", "content": f"Context:\n{context}"},
         {"role": "user", "content": chat_request.user_message}
     ]
     try:
