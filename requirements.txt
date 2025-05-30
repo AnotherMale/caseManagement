@@ -78,6 +78,7 @@ python-multipart
 pytz
 pyxnat
 PyYAML
+qdrant-client
 rdflib
 regex
 requests
