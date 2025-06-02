@@ -154,7 +154,7 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
     return user
 
 @app.post("/upload-openai/")
-async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = Depends(oauth2_scheme)):
+async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     payload = verify_access_token(token.credentials)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
