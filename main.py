@@ -17,7 +17,7 @@ from openai import OpenAI
 from uuid import uuid4
 
 client = OpenAI(
-    api_key="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"
+    api_key=os.getenv("OPENAI_API_KEY")
 )
 
 Base.metadata.create_all(bind=engine)
