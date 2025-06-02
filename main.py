@@ -7,16 +7,14 @@ import os
 import fitz
 import re
 from database import SessionLocal, Base, engine
-from models import User
+from models import User, Document
 from auth import hash_password, verify_password, create_access_token, verify_access_token
 import boto3
 from botocore.exceptions import ClientError
-from collections import defaultdict
 from qdrant_client import QdrantClient
-from qdrant_client.http.models import Distance, VectorParams, PointStruct
-from openai import OpenAI, OpenAIError
-
-user_uploaded_text = defaultdict(str)
+from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
+from openai import OpenAI
+from uuid import uuid4
 
 client = OpenAI(
     api_key="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"
@@ -113,7 +111,11 @@ def retrieve_relevant_docs(user_email: str, query: str):
         collection_name=collection_name,
         query_vector=query_embedding,
         limit=3,
-        filter={"must": [{"key": "user_email", "match": {"value": user_email}}]}
+        query_filter=Filter(
+            must=[
+                FieldCondition(key="user_email", match=MatchValue(value=user_email))
+            ]
+        )
     )
     return [hit.payload["summary"] for hit in search_result]
 
@@ -125,14 +127,12 @@ async def log_requests(request, call_next):
 
 @app.post("/register/")
 async def register_user(user: UserCreate, db: Session = Depends(get_db)):
-    db_user = db.query(User).filter(User.email == user.email).first()
-    if db_user:
+    if db.query(User).filter(User.email == user.email).first():
         raise HTTPException(status_code=400, detail="Email already registered")
     hashed_password = hash_password(user.password)
     new_user = User(email=user.email, hashed_password=hashed_password)
     db.add(new_user)
     db.commit()
-    db.refresh(new_user)
     return {"msg": "User registered successfully"}
 
 @app.post("/login/", response_model=Token)
@@ -140,12 +140,12 @@ async def login_user(user: UserCreate, db: Session = Depends(get_db)):
     db_user = db.query(User).filter(User.email == user.email).first()
     if db_user is None or not verify_password(user.password, db_user.hashed_password):
         raise HTTPException(status_code=401, detail="Invalid credentials")
-    access_token = create_access_token(data={"sub": db_user.email})
-    return {"access_token": access_token, "token_type": "bearer"}
+    token = create_access_token(data={"sub": db_user.email})
+    return {"access_token": token, "token_type": "bearer"}
 
 @app.get("/me/", response_model=UserOut)
 async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
-    payload = verify_access_token(token)
+    payload = verify_access_token(token.credentials)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     user = db.query(User).filter(User.email == payload["sub"]).first()
@@ -191,7 +191,25 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
             "filename": file.filename,
             "extraction_and_summary": output
         })
-    user_uploaded_text[user_email] = all_text
+        doc = Document(filename=file.filename, user_email=user_email, summary=output)
+        db.add(doc)
+        db.commit()
+        db.refresh(doc)
+        embedding = embed_text(output)
+        qdrant.upsert(
+            collection_name=collection_name,
+            points=[
+                PointStruct(
+                    id=str(uuid4()),
+                    vector=embedding,
+                    payload={
+                        "user_email": user_email,
+                        "filename": file.filename,
+                        "summary": output
+                    }
+                )
+            ]
+        )
     try:
         consolidated_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
