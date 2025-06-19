@@ -58,8 +58,13 @@ class Token(BaseModel):
     access_token: str
     token_type: str
 
+class ChatHistoryItem(BaseModel):
+    user: str
+    bot: str
+
 class ChatRequest(BaseModel):
     user_message: str
+    chat_history: list[ChatHistoryItem] = []
 
 class EmailRequest(BaseModel):
     to_email: EmailStr
@@ -240,11 +245,13 @@ async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_s
     user_email = payload["sub"]
     relevant_docs = retrieve_relevant_docs(user_email, chat_request.user_message)
     context = "\n\n".join(relevant_docs)
-    prompt_messages = [
-        {"role": "system", "content": "You are a helpful assistant. Use the following user documents to answer questions accurately:"},
-        {"role": "user", "content": f"Context:\n{context}"},
-        {"role": "user", "content": chat_request.user_message}
-    ]
+    prompt_messages = [{"role": "system", "content": "You are a helpful assistant. Use the following user documents to answer questions accurately."}]
+    prompt_messages.append({"role": "user", "content": f"Context:\n{context}"})
+    for exchange in chat_request.chat_history:
+        prompt_messages.append({"role": "user", "content": exchange.user})
+        prompt_messages.append({"role": "assistant", "content": exchange.bot})
+    prompt_messages.append({"role": "user", "content": chat_request.user_message})
+
     try:
         response = client.chat.completions.create(
             model="gpt-4",
