@@ -180,7 +180,7 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
                     {
                         "role": "system",
                         "content": (
-                            "Extract the following fields from the error ticket: "
+                            "Extract the following fields from the error ticket and list them as bullet points: "
                             "incident number, system, date, reporter, priority, responsible area, problem, and solution. "
                             "Then provide a brief summary of the following text:\n\n" + cleaned_text
                         )
@@ -222,7 +222,7 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
                 {
                     "role": "system",
                     "content": (
-                        "Summarize the following consolidated text from multiple error tickets:\n\n" + all_text
+                        "Summarize the following consolidated text from multiple error tickets into a single paragraph:\n\n" + all_text
                     )
                 }
             ],
@@ -245,7 +245,7 @@ async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_s
     user_email = payload["sub"]
     relevant_docs = retrieve_relevant_docs(user_email, chat_request.user_message)
     context = "\n\n".join(relevant_docs)
-    prompt_messages = [{"role": "system", "content": "You are a helpful assistant. Use the following user documents to answer questions accurately."}]
+    prompt_messages = [{"role": "system", "content": "You are a helpful assistant who answers various questions. Some questions require you to cite information following error tickets, some questions require you to provide generalized knowledge which can be extrapolated from the following error tickets, and some questions won't require you to reference the following error tickets at all."}]
     prompt_messages.append({"role": "user", "content": f"Context:\n{context}"})
     for exchange in chat_request.chat_history:
         prompt_messages.append({"role": "user", "content": exchange.user})
