@@ -270,11 +270,43 @@ async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_s
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
-@app.post("/send-email/")
-def email_user(request: EmailRequest):
-    send_email(
-        to_address=request.to_email,
-        subject="Welcome to Our App",
-        body_text="Thanks for signing up!"
-    )
-    return {"message": "Email sent"}
+@app.post("/send-report-email/")
+async def send_report_email(
+    to_email: str = Form(...),
+    report_pdf: UploadFile = File(...),
+    token: str = Depends(oauth2_scheme)
+):
+    payload = verify_access_token(token.credentials)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    try:
+        ses = boto3.client('ses', region_name='us-east-1')
+        file_bytes = await report_pdf.read()
+        attachment = {
+            'Filename': report_pdf.filename,
+            'Data': file_bytes
+        }
+        import base64
+        import mimetypes
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        from email.mime.application import MIMEApplication
+        msg = MIMEMultipart()
+        msg['Subject'] = 'Your Error Ticket Summary Report'
+        msg['From'] = 'ohrivibhav@gmail.com'
+        msg['To'] = to_email
+        body = MIMEText('Attached is the summary report you generated.', 'plain')
+        msg.attach(body)
+        part = MIMEApplication(attachment["Data"])
+        part.add_header('Content-Disposition', 'attachment', filename=attachment["Filename"])
+        msg.attach(part)
+        response = ses.send_raw_email(
+            Source=msg['From'],
+            Destinations=[msg['To']],
+            RawMessage={'Data': msg.as_string()}
+        )
+        return {"message": "Email with report sent successfully."}
+    except ClientError as e:
+        raise HTTPException(status_code=500, detail=f"Email failed to send: {e.response['Error']['Message']}")
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
