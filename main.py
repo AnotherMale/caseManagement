@@ -1,4 +1,4 @@
-from fastapi import FastAPI, UploadFile, File, Depends, HTTPException
+from fastapi import FastAPI, UploadFile, File, Depends, HTTPException, Form
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.security import OAuth2PasswordBearer, HTTPBearer
 from pydantic import BaseModel, EmailStr
@@ -159,7 +159,12 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
     return user
 
 @app.post("/upload-openai/")
-async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def upload_pdfs_openai(
+    files: list[UploadFile] = File(...),
+    user_prompt: str = Form(""),
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
     payload = verify_access_token(token.credentials)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
@@ -174,16 +179,17 @@ async def upload_pdfs_openai(files: list[UploadFile] = File(...), token: str = D
         cleaned_text = clean_text(extracted_text)
         all_text += f"--- Start of {file.filename} ---\n{cleaned_text}\n\n"
         try:
+            prompt = user_prompt.strip() or (
+                "Extract the following fields from the error ticket and list them as bullet points: "
+                "incident number, system, date, reporter, priority, responsible area, problem, and solution. "
+                "Then provide a brief summary of the following text:\n\n"
+            )
             response = client.chat.completions.create(
                 model="gpt-3.5-turbo",
                 messages=[
                     {
                         "role": "system",
-                        "content": (
-                            "Extract the following fields from the error ticket and list them as bullet points: "
-                            "incident number, system, date, reporter, priority, responsible area, problem, and solution. "
-                            "Then provide a brief summary of the following text:\n\n" + cleaned_text
-                        )
+                        "content": prompt + cleaned_text
                     }
                 ],
                 max_tokens=500,
