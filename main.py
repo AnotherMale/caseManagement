@@ -110,17 +110,29 @@ def embed_text(text: str):
     )
     return response.data[0].embedding
 
-def retrieve_relevant_docs(user_email: str, query: str):
+def retrieve_relevant_docs(user_email: str, query: str, db: Session = SessionLocal()):
     query_embedding = embed_text(query)
+    public_users = db.query(User.email).filter(User.public_data == True).all()
+    public_emails = [u.email for u in public_users]
+    search_filter = Filter(
+        must=[
+            FieldCondition(
+                key="user_email",
+                match=MatchValue(value=user_email)
+            )
+        ],
+        should=[
+            FieldCondition(
+                key="user_email",
+                match=MatchValue(value=email)
+            ) for email in public_emails if email != user_email
+        ]
+    )
     search_result = qdrant.search(
         collection_name=collection_name,
         query_vector=query_embedding,
         limit=3,
-        query_filter=Filter(
-            must=[
-                FieldCondition(key="user_email", match=MatchValue(value=user_email))
-            ]
-        )
+        query_filter=search_filter
     )
     return [hit.payload["summary"] for hit in search_result]
 
