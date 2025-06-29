@@ -53,6 +53,7 @@ class UserCreate(BaseModel):
 
 class UserOut(BaseModel):
     email: str
+    public_data: bool
 
 class Token(BaseModel):
     access_token: str
@@ -168,7 +169,7 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
     user = db.query(User).filter(User.email == payload["sub"]).first()
     if user is None:
         raise HTTPException(status_code=404, detail="User not found")
-    return user
+    return {"email": user.email, "public_data": user.public_data}
 
 @app.post("/upload-openai/")
 async def upload_pdfs_openai(
