@@ -310,3 +310,15 @@ async def send_report_email(
         raise HTTPException(status_code=500, detail=f"Email failed to send: {e.response['Error']['Message']}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
+
+@app.post("/toggle-public/")
+def toggle_public_data(public: bool, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+    payload = verify_access_token(token.credentials)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Invalid token")
+    user = db.query(User).filter(User.email == payload["sub"]).first()
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    user.public_data = public
+    db.commit()
+    return {"message": f"Public data access set to {public}"}
