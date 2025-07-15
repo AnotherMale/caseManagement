@@ -177,7 +177,7 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
         raise HTTPException(status_code=404, detail="User not found")
     return {"email": user.email, "public_data": user.public_data}
 
-@app.post("/upload-openai/")
+@app.post("/upload/")
 async def upload_pdfs_openai(
     files: list[UploadFile] = File(...),
     user_prompt: str = Form(""),
@@ -204,7 +204,7 @@ async def upload_pdfs_openai(
                 "Then provide a brief summary of the following text:\n\n"
             )
             response = client.chat.completions.create(
-                model="llama3-70b-8192",
+                model="mixtral-8x7b-32768",
                 messages=[
                     {
                         "role": "system",
@@ -243,7 +243,7 @@ async def upload_pdfs_openai(
         print(f"Inserted vector for {file.filename} by {user_email}")
     try:
         consolidated_response = client.chat.completions.create(
-            model="llama3-70b-8192",
+            model="mixtral-8x7b-32768",
             messages=[
                 {
                     "role": "system",
