@@ -111,7 +111,7 @@ def embed_text(text: str):
     )
     return response.data[0].embedding
 
-def retrieve_relevant_docs(user_email: str, query: str, db: Session = SessionLocal()):
+def retrieve_relevant_docs(user_email: str, query: str, db: Session):
     query_embedding = embed_text(query)
     public_users = db.query(User.email).filter(User.public_data == True).all()
     public_emails = [u.email for u in public_users]
@@ -234,6 +234,7 @@ async def upload_pdfs_openai(
                 )
             ]
         )
+        print(f"Inserted vector for {file.filename} by {user_email}")
     try:
         consolidated_response = client.chat.completions.create(
             model="gpt-3.5-turbo",
@@ -257,12 +258,12 @@ async def upload_pdfs_openai(
     }
 
 @app.post("/chat/")
-async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_scheme)):
+async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     payload = verify_access_token(token.credentials)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     user_email = payload["sub"]
-    relevant_docs = retrieve_relevant_docs(user_email, chat_request.user_message)
+    relevant_docs = retrieve_relevant_docs(user_email, chat_request.user_message, db)
     context = "\n\n".join(relevant_docs)
     prompt_messages = [{"role": "system", "content": "You are a helpful assistant who answers various questions. Some questions require you to cite information following error tickets, some questions require you to provide generalized knowledge which can be extrapolated from the following error tickets, and some questions won't require you to reference the following error tickets at all."}]
     prompt_messages.append({"role": "user", "content": f"Context:\n{context}"})
