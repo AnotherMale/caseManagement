@@ -88,7 +88,6 @@ rsa
 s3transfer
 safetensors
 scipy
-sentence-transformers
 setuptools
 shellingham
 simplejson
