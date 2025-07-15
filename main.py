@@ -20,6 +20,13 @@ client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
 )
 
+from openai import OpenAI
+
+client = OpenAI(
+    api_key=os.getenv("GROQ_API_KEY"),
+    base_url="https://api.groq.com/openai/v1"
+)
+
 Base.metadata.create_all(bind=engine)
 
 oauth2_scheme = HTTPBearer()
