@@ -116,13 +116,12 @@ def retrieve_relevant_docs(user_email: str, query: str, db: Session):
     public_users = db.query(User.email).filter(User.public_data == True).all()
     public_emails = [u.email for u in public_users]
     search_filter = Filter(
-        must=[
+        should=[
             FieldCondition(
                 key="user_email",
                 match=MatchValue(value=user_email)
             )
-        ],
-        should=[
+        ] + [
             FieldCondition(
                 key="user_email",
                 match=MatchValue(value=email)
@@ -135,7 +134,7 @@ def retrieve_relevant_docs(user_email: str, query: str, db: Session):
         limit=3,
         query_filter=search_filter
     )
-    return [hit.payload["summary"] for hit in search_result]
+    return [hit.payload["summary"] for hit in search_result if hit.payload and "summary" in hit.payload]
 
 @app.middleware("http")
 async def log_requests(request, call_next):
