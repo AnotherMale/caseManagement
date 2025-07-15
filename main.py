@@ -15,6 +15,8 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from openai import OpenAI
 from uuid import uuid4
+from sentence_transformers import SentenceTransformer
+embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 client = OpenAI(
     api_key=os.getenv("OPENAI_API_KEY")
@@ -112,11 +114,7 @@ def send_email(to_address: str, subject: str, body_text: str):
         raise Exception(f"Email failed to send: {e.response['Error']['Message']}")
 
 def embed_text(text: str):
-    response = client.embeddings.create(
-        model="text-embedding-3-small",
-        input=text
-    )
-    return response.data[0].embedding
+    return embedding_model.encode(text).tolist()
 
 def retrieve_relevant_docs(user_email: str, query: str, db: Session):
     query_embedding = embed_text(query)
