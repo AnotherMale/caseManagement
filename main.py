@@ -19,12 +19,6 @@ from sentence_transformers import SentenceTransformer
 embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
 
 client = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
-)
-
-from openai import OpenAI
-
-client = OpenAI(
     api_key=os.getenv("GROQ_API_KEY"),
     base_url="https://api.groq.com/openai/v1"
 )
