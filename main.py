@@ -21,6 +21,10 @@ client = OpenAI(
     base_url="https://api.groq.com/openai/v1"
 )
 
+client2 = OpenAI(
+    api_key=os.getenv("OPENAI_API_KEY")
+)
+
 Base.metadata.create_all(bind=engine)
 
 oauth2_scheme = HTTPBearer()
@@ -106,7 +110,7 @@ def send_email(to_address: str, subject: str, body_text: str):
         raise Exception(f"Email failed to send: {e.response['Error']['Message']}")
 
 def embed_text(text: str):
-    response = client.embeddings.create(
+    response = client2.embeddings.create(
         model="text-embedding-3-small",
         input=text
     )
