@@ -171,7 +171,7 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
         raise HTTPException(status_code=404, detail="User not found")
     return {"email": user.email, "public_data": user.public_data}
 
-@app.post("/upload/")
+@app.post("/upload-openai/")
 async def upload_pdfs_openai(
     files: list[UploadFile] = File(...),
     user_prompt: str = Form(""),
