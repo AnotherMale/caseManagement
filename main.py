@@ -202,7 +202,7 @@ async def upload_pdfs_openai(
                 "Then provide a brief summary of the following text:\n\n"
             )
             response = client.chat.completions.create(
-                model="llama-3.1-70b-versatile",
+                model="openai/gpt-oss-120b",
                 messages=[
                     {
                         "role": "system",
@@ -241,7 +241,7 @@ async def upload_pdfs_openai(
         print(f"Inserted vector for {file.filename} by {user_email}")
     try:
         consolidated_response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=[
                 {
                     "role": "system",
@@ -278,7 +278,7 @@ async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_s
 
     try:
         response = client.chat.completions.create(
-            model="llama-3.1-70b-versatile",
+            model="openai/gpt-oss-120b",
             messages=prompt_messages,
             temperature=0.3,
             max_tokens=500
