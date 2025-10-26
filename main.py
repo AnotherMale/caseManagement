@@ -118,28 +118,37 @@ def embed_text(text: str):
 
 def retrieve_relevant_docs(user_email: str, query: str, db: Session):
     query_embedding = embed_text(query)
+
     public_users = db.query(User.email).filter(User.public_data == True).all()
     public_emails = [u.email for u in public_users]
+
     search_filter = Filter(
         should=[
-            FieldCondition(
-                key="user_email",
-                match=MatchValue(value=user_email)
-            )
+            FieldCondition(key="user_email", match=MatchValue(value=user_email))
         ] + [
-            FieldCondition(
-                key="user_email",
-                match=MatchValue(value=email)
-            ) for email in public_emails if email != user_email
+            FieldCondition(key="user_email", match=MatchValue(value=email))
+            for email in public_emails if email != user_email
         ]
     )
+
     search_result = qdrant.search(
         collection_name=collection_name,
         query_vector=query_embedding,
-        limit=3,
+        limit=5,
         query_filter=search_filter
     )
-    return [hit.payload["summary"] for hit in search_result if hit.payload and "summary" in hit.payload]
+
+    retrieved = []
+    for hit in search_result:
+        payload = hit.payload or {}
+        content_type = payload.get("type", "summary")
+        snippet = payload.get("content", "")
+        filename = payload.get("filename", "Unknown File")
+        if snippet:
+            retrieved.append(
+                f"[{filename} - {content_type.upper()}]\n{snippet}\n"
+            )
+    return retrieved
 
 @app.middleware("http")
 async def log_requests(request, call_next):
@@ -186,15 +195,19 @@ async def upload_pdfs_openai(
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
     user_email = payload["sub"]
+
     all_text = ""
     file_outputs = []
+
     for file in files:
         file_path = os.path.join(UPLOAD_FOLDER, file.filename)
         with open(file_path, "wb") as f:
             f.write(await file.read())
+
         extracted_text = extract_text_from_pdf(file_path)
         cleaned_text = clean_text(extracted_text)
         all_text += f"--- Start of {file.filename} ---\n{cleaned_text}\n\n"
+
         try:
             prompt = user_prompt.strip() or (
                 "Extract the following fields from the error ticket and list them as bullet points: "
@@ -203,52 +216,65 @@ async def upload_pdfs_openai(
             )
             response = client.chat.completions.create(
                 model="openai/gpt-oss-120b",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": prompt + cleaned_text
-                    }
-                ],
+                messages=[{"role": "system", "content": prompt + cleaned_text}],
                 max_tokens=500,
                 temperature=0.5
             )
-            output = response.choices[0].message.content.strip()
+            summary_output = response.choices[0].message.content.strip()
         except Exception as e:
-            output = f"OpenAI API error while processing {file.filename}: {str(e)}"
-        file_outputs.append({
-            "filename": file.filename,
-            "extraction_and_summary": output
-        })
-        doc = Document(filename=file.filename, user_email=user_email, summary=output)
+            summary_output = f"Groq API error while processing {file.filename}: {str(e)}"
+
+        doc = Document(filename=file.filename, user_email=user_email, summary=summary_output)
         db.add(doc)
         db.commit()
         db.refresh(doc)
-        embedding = embed_text(output)
-        qdrant.upsert(
-            collection_name=collection_name,
-            points=[
-                PointStruct(
-                    id=str(uuid4()),
-                    vector=embedding,
-                    payload={
-                        "user_email": user_email,
-                        "filename": file.filename,
-                        "summary": output
-                    }
-                )
-            ]
-        )
-        print(f"Inserted vector for {file.filename} by {user_email}")
+
+        try:
+            summary_embedding = embed_text(summary_output)
+            raw_embedding = embed_text(cleaned_text)
+
+            qdrant.upsert(
+                collection_name=collection_name,
+                points=[
+                    PointStruct(
+                        id=str(uuid4()),
+                        vector=summary_embedding,
+                        payload={
+                            "user_email": user_email,
+                            "filename": file.filename,
+                            "type": "summary",
+                            "content": summary_output
+                        }
+                    ),
+                    PointStruct(
+                        id=str(uuid4()),
+                        vector=raw_embedding,
+                        payload={
+                            "user_email": user_email,
+                            "filename": file.filename,
+                            "type": "raw_text",
+                            "content": cleaned_text
+                        }
+                    )
+                ]
+            )
+            print(f"Inserted dual embeddings for {file.filename} by {user_email}")
+        except Exception as e:
+            print(f"Embedding error for {file.filename}: {e}")
+
+        file_outputs.append({
+            "filename": file.filename,
+            "extraction_and_summary": summary_output
+        })
+
     try:
         consolidated_response = client.chat.completions.create(
             model="openai/gpt-oss-120b",
             messages=[
-                {
-                    "role": "system",
-                    "content": (
-                        "Summarize the following consolidated text from multiple error tickets into a single paragraph:\n\n" + all_text
-                    )
-                }
+                {"role": "system", "content": (
+                    "Summarize the following consolidated text from multiple error tickets into a single paragraph:\n\n"
+                    + all_text
+                )}
             ],
             max_tokens=300,
             temperature=0.5
@@ -256,24 +282,43 @@ async def upload_pdfs_openai(
         consolidated_summary = consolidated_response.choices[0].message.content.strip()
     except Exception as e:
         consolidated_summary = f"Error summarizing consolidated text: {str(e)}"
+
     return {
         "per_file_outputs": file_outputs,
         "consolidated_summary": consolidated_summary
     }
 
 @app.post("/chat/")
-async def chat_with_bot(chat_request: ChatRequest, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
+async def chat_with_bot(
+    chat_request: ChatRequest,
+    token: str = Depends(oauth2_scheme),
+    db: Session = Depends(get_db)
+):
     payload = verify_access_token(token.credentials)
     if payload is None:
         raise HTTPException(status_code=401, detail="Invalid token")
+
     user_email = payload["sub"]
+
     relevant_docs = retrieve_relevant_docs(user_email, chat_request.user_message, db)
     context = "\n\n".join(relevant_docs)
-    prompt_messages = [{"role": "system", "content": "You are a helpful assistant who answers various questions. Some questions require you to cite information following error tickets, some questions require you to provide generalized knowledge which can be extrapolated from the following error tickets, and some questions won't require you to reference the following error tickets at all."}]
-    prompt_messages.append({"role": "user", "content": f"Context:\n{context}"})
+
+    prompt_messages = [
+        {
+            "role": "system",
+            "content": (
+                "You are a helpful assistant for a case management system. "
+                "Use the retrieved ticket texts and summaries below when relevant. "
+                "Cite filenames when referencing details."
+            )
+        },
+        {"role": "user", "content": f"Context:\n{context}"}
+    ]
+
     for exchange in chat_request.chat_history:
         prompt_messages.append({"role": "user", "content": exchange.user})
         prompt_messages.append({"role": "assistant", "content": exchange.bot})
+
     prompt_messages.append({"role": "user", "content": chat_request.user_message})
 
     try:
