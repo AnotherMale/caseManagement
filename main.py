@@ -17,23 +17,14 @@ from openai import OpenAI
 from uuid import uuid4
 from transformers import pipeline
 
-# ------------------------------
-# Load Local Transformer Pipelines
-# ------------------------------
 print("Loading local summarization and chat models...")
 summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
 chat_model = pipeline("text-generation", model="mistralai/Mistral-7B-Instruct-v0.2")
 
-# ------------------------------
-# Database Setup
-# ------------------------------
 Base.metadata.create_all(bind=engine)
 oauth2_scheme = HTTPBearer()
 app = FastAPI()
 
-# ------------------------------
-# CORS Setup
-# ------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -45,9 +36,6 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# ------------------------------
-# File + Vector DB Setup
-# ------------------------------
 UPLOAD_FOLDER = "./uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -58,11 +46,7 @@ qdrant.recreate_collection(
     vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
 )
 
-# ------------------------------
-# Local Model Helpers
-# ------------------------------
 def local_summarize(text: str) -> str:
-    """Use the local summarization model."""
     try:
         summary = summarizer(text, max_length=300, min_length=50, do_sample=False)
         return summary[0]["summary_text"].strip()
@@ -70,7 +54,6 @@ def local_summarize(text: str) -> str:
         return f"Local summarization error: {str(e)}"
 
 def local_chat(prompt: str, history=None) -> str:
-    """Use the local chat model (simple text generation)."""
     try:
         context = ""
         if history:
@@ -81,14 +64,8 @@ def local_chat(prompt: str, history=None) -> str:
     except Exception as e:
         return f"Local chat error: {str(e)}"
 
-# ------------------------------
-# OpenAI Client for Embeddings
-# ------------------------------
 client2 = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
 
-# ------------------------------
-# Pydantic Schemas
-# ------------------------------
 class UserCreate(BaseModel):
     email: str
     password: str
@@ -112,9 +89,6 @@ class ChatRequest(BaseModel):
 class EmailRequest(BaseModel):
     to_email: EmailStr
 
-# ------------------------------
-# DB Session
-# ------------------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -122,9 +96,6 @@ def get_db():
     finally:
         db.close()
 
-# ------------------------------
-# Utility Functions
-# ------------------------------
 def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
     text = "\n".join([page.get_text("text") for page in doc])
@@ -191,18 +162,12 @@ def retrieve_relevant_docs(user_email: str, query: str, db: Session):
             retrieved.append(f"[{filename} - {content_type.upper()}]\n{snippet}\n")
     return retrieved
 
-# ------------------------------
-# Middleware
-# ------------------------------
 @app.middleware("http")
 async def log_requests(request, call_next):
     print(f"Incoming request: {request.method} {request.url}")
     response = await call_next(request)
     return response
 
-# ------------------------------
-# Auth + User Routes
-# ------------------------------
 @app.post("/register/")
 async def register_user(user: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == user.email).first():
@@ -231,9 +196,6 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
         raise HTTPException(status_code=404, detail="User not found")
     return {"email": user.email, "public_data": user.public_data}
 
-# ------------------------------
-# File Upload + Summarization
-# ------------------------------
 @app.post("/upload-openai/")
 async def upload_pdfs_openai(
     files: list[UploadFile] = File(...),
@@ -258,7 +220,6 @@ async def upload_pdfs_openai(
         cleaned_text = clean_text(extracted_text)
         all_text += f"--- Start of {file.filename} ---\n{cleaned_text}\n\n"
 
-        # Local summarization instead of Groq/OpenAI
         summary_output = local_summarize(cleaned_text)
 
         doc = Document(filename=file.filename, user_email=user_email, summary=summary_output)
@@ -302,7 +263,6 @@ async def upload_pdfs_openai(
             "extraction_and_summary": summary_output
         })
 
-    # Consolidated summary using local summarizer
     consolidated_summary = local_summarize(all_text)
 
     return {
@@ -310,9 +270,6 @@ async def upload_pdfs_openai(
         "consolidated_summary": consolidated_summary
     }
 
-# ------------------------------
-# Chat Endpoint (local model)
-# ------------------------------
 @app.post("/chat/")
 async def chat_with_bot(
     chat_request: ChatRequest,
@@ -331,9 +288,6 @@ async def chat_with_bot(
     bot_reply = local_chat(prompt, chat_request.chat_history)
     return {"response": bot_reply}
 
-# ------------------------------
-# Email Sending with PDF Attachment
-# ------------------------------
 @app.post("/send-report-email/")
 async def send_report_email(
     to_email: str = Form(...),
@@ -375,9 +329,6 @@ async def send_report_email(
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
-# ------------------------------
-# Toggle Public Data
-# ------------------------------
 @app.post("/toggle-public/")
 def toggle_public_data(public: bool, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     payload = verify_access_token(token.credentials)
