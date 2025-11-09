@@ -75,6 +75,7 @@ python-dateutil
 python-dotenv
 python-jose
 python-multipart
+pytorch
 pytz
 pyxnat
 PyYAML
@@ -110,5 +111,6 @@ urllib3
 uvicorn
 watchfiles
 websockets
+
 
 
