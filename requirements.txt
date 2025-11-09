@@ -97,6 +97,7 @@ SQLAlchemy
 starlette
 sympy
 tokenizers
+torch
 tqdm
 traits
 transformers
@@ -109,4 +110,5 @@ urllib3
 uvicorn
 watchfiles
 websockets
+
 
