@@ -15,22 +15,25 @@ from qdrant_client import QdrantClient
 from qdrant_client.http.models import Distance, VectorParams, PointStruct, Filter, FieldCondition, MatchValue
 from openai import OpenAI
 from uuid import uuid4
+from transformers import pipeline
 
-client = OpenAI(
-    api_key=os.getenv("GROQ_API_KEY"),
-    base_url="https://api.groq.com/openai/v1"
-)
+# ------------------------------
+# Load Local Transformer Pipelines
+# ------------------------------
+print("Loading local summarization and chat models...")
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+chat_model = pipeline("text-generation", model="mistralai/Mistral-7B-Instruct-v0.2")
 
-client2 = OpenAI(
-    api_key=os.getenv("OPENAI_API_KEY")
-)
-
+# ------------------------------
+# Database Setup
+# ------------------------------
 Base.metadata.create_all(bind=engine)
-
 oauth2_scheme = HTTPBearer()
-
 app = FastAPI()
 
+# ------------------------------
+# CORS Setup
+# ------------------------------
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[
@@ -42,6 +45,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# ------------------------------
+# File + Vector DB Setup
+# ------------------------------
 UPLOAD_FOLDER = "./uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
@@ -52,6 +58,37 @@ qdrant.recreate_collection(
     vectors_config=VectorParams(size=1536, distance=Distance.COSINE)
 )
 
+# ------------------------------
+# Local Model Helpers
+# ------------------------------
+def local_summarize(text: str) -> str:
+    """Use the local summarization model."""
+    try:
+        summary = summarizer(text, max_length=300, min_length=50, do_sample=False)
+        return summary[0]["summary_text"].strip()
+    except Exception as e:
+        return f"Local summarization error: {str(e)}"
+
+def local_chat(prompt: str, history=None) -> str:
+    """Use the local chat model (simple text generation)."""
+    try:
+        context = ""
+        if history:
+            context = "\n".join([f"User: {h.user}\nBot: {h.bot}" for h in history])
+        full_prompt = f"{context}\nUser: {prompt}\nAssistant:"
+        response = chat_model(full_prompt, max_new_tokens=200, temperature=0.6)
+        return response[0]["generated_text"].split("Assistant:")[-1].strip()
+    except Exception as e:
+        return f"Local chat error: {str(e)}"
+
+# ------------------------------
+# OpenAI Client for Embeddings
+# ------------------------------
+client2 = OpenAI(api_key=os.getenv("OPENAI_API_KEY"))
+
+# ------------------------------
+# Pydantic Schemas
+# ------------------------------
 class UserCreate(BaseModel):
     email: str
     password: str
@@ -75,6 +112,9 @@ class ChatRequest(BaseModel):
 class EmailRequest(BaseModel):
     to_email: EmailStr
 
+# ------------------------------
+# DB Session
+# ------------------------------
 def get_db():
     db = SessionLocal()
     try:
@@ -82,6 +122,9 @@ def get_db():
     finally:
         db.close()
 
+# ------------------------------
+# Utility Functions
+# ------------------------------
 def extract_text_from_pdf(pdf_path):
     doc = fitz.open(pdf_path)
     text = "\n".join([page.get_text("text") for page in doc])
@@ -145,17 +188,21 @@ def retrieve_relevant_docs(user_email: str, query: str, db: Session):
         snippet = payload.get("content", "")
         filename = payload.get("filename", "Unknown File")
         if snippet:
-            retrieved.append(
-                f"[{filename} - {content_type.upper()}]\n{snippet}\n"
-            )
+            retrieved.append(f"[{filename} - {content_type.upper()}]\n{snippet}\n")
     return retrieved
 
+# ------------------------------
+# Middleware
+# ------------------------------
 @app.middleware("http")
 async def log_requests(request, call_next):
     print(f"Incoming request: {request.method} {request.url}")
     response = await call_next(request)
     return response
 
+# ------------------------------
+# Auth + User Routes
+# ------------------------------
 @app.post("/register/")
 async def register_user(user: UserCreate, db: Session = Depends(get_db)):
     if db.query(User).filter(User.email == user.email).first():
@@ -184,6 +231,9 @@ async def read_users_me(token: str = Depends(oauth2_scheme), db: Session = Depen
         raise HTTPException(status_code=404, detail="User not found")
     return {"email": user.email, "public_data": user.public_data}
 
+# ------------------------------
+# File Upload + Summarization
+# ------------------------------
 @app.post("/upload-openai/")
 async def upload_pdfs_openai(
     files: list[UploadFile] = File(...),
@@ -208,21 +258,8 @@ async def upload_pdfs_openai(
         cleaned_text = clean_text(extracted_text)
         all_text += f"--- Start of {file.filename} ---\n{cleaned_text}\n\n"
 
-        try:
-            prompt = user_prompt.strip() or (
-                "Extract the following fields from the error ticket and list them as bullet points: "
-                "incident number, system, date, reporter, priority, responsible area, problem, and solution. "
-                "Then provide a brief summary of the following text:\n\n"
-            )
-            response = client.chat.completions.create(
-                model="openai/gpt-oss-120b",
-                messages=[{"role": "system", "content": prompt + cleaned_text}],
-                max_tokens=500,
-                temperature=0.5
-            )
-            summary_output = response.choices[0].message.content.strip()
-        except Exception as e:
-            summary_output = f"Groq API error while processing {file.filename}: {str(e)}"
+        # Local summarization instead of Groq/OpenAI
+        summary_output = local_summarize(cleaned_text)
 
         doc = Document(filename=file.filename, user_email=user_email, summary=summary_output)
         db.add(doc)
@@ -232,7 +269,6 @@ async def upload_pdfs_openai(
         try:
             summary_embedding = embed_text(summary_output)
             raw_embedding = embed_text(cleaned_text)
-
             qdrant.upsert(
                 collection_name=collection_name,
                 points=[
@@ -258,7 +294,6 @@ async def upload_pdfs_openai(
                     )
                 ]
             )
-            print(f"Inserted dual embeddings for {file.filename} by {user_email}")
         except Exception as e:
             print(f"Embedding error for {file.filename}: {e}")
 
@@ -267,27 +302,17 @@ async def upload_pdfs_openai(
             "extraction_and_summary": summary_output
         })
 
-    try:
-        consolidated_response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=[
-                {"role": "system", "content": (
-                    "Summarize the following consolidated text from multiple error tickets into a single paragraph:\n\n"
-                    + all_text
-                )}
-            ],
-            max_tokens=300,
-            temperature=0.5
-        )
-        consolidated_summary = consolidated_response.choices[0].message.content.strip()
-    except Exception as e:
-        consolidated_summary = f"Error summarizing consolidated text: {str(e)}"
+    # Consolidated summary using local summarizer
+    consolidated_summary = local_summarize(all_text)
 
     return {
         "per_file_outputs": file_outputs,
         "consolidated_summary": consolidated_summary
     }
 
+# ------------------------------
+# Chat Endpoint (local model)
+# ------------------------------
 @app.post("/chat/")
 async def chat_with_bot(
     chat_request: ChatRequest,
@@ -299,40 +324,16 @@ async def chat_with_bot(
         raise HTTPException(status_code=401, detail="Invalid token")
 
     user_email = payload["sub"]
-
     relevant_docs = retrieve_relevant_docs(user_email, chat_request.user_message, db)
     context = "\n\n".join(relevant_docs)
+    prompt = f"Context:\n{context}\n\nUser: {chat_request.user_message}"
 
-    prompt_messages = [
-        {
-            "role": "system",
-            "content": (
-                "You are a helpful assistant for a case management system. "
-                "Use the retrieved ticket texts and summaries below when relevant. "
-                "Cite filenames when referencing details."
-            )
-        },
-        {"role": "user", "content": f"Context:\n{context}"}
-    ]
+    bot_reply = local_chat(prompt, chat_request.chat_history)
+    return {"response": bot_reply}
 
-    for exchange in chat_request.chat_history:
-        prompt_messages.append({"role": "user", "content": exchange.user})
-        prompt_messages.append({"role": "assistant", "content": exchange.bot})
-
-    prompt_messages.append({"role": "user", "content": chat_request.user_message})
-
-    try:
-        response = client.chat.completions.create(
-            model="openai/gpt-oss-120b",
-            messages=prompt_messages,
-            temperature=0.3,
-            max_tokens=500
-        )
-        bot_reply = response.choices[0].message.content.strip()
-        return {"response": bot_reply}
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=str(e))
-
+# ------------------------------
+# Email Sending with PDF Attachment
+# ------------------------------
 @app.post("/send-report-email/")
 async def send_report_email(
     to_email: str = Form(...),
@@ -345,35 +346,38 @@ async def send_report_email(
     try:
         ses = boto3.client('ses', region_name='us-east-1')
         file_bytes = await report_pdf.read()
-        attachment = {
-            'Filename': report_pdf.filename,
-            'Data': file_bytes
-        }
-        import base64
-        import mimetypes
+        attachment = {'Filename': report_pdf.filename, 'Data': file_bytes}
+
         from email.mime.multipart import MIMEMultipart
         from email.mime.text import MIMEText
         from email.mime.application import MIMEApplication
+
         msg = MIMEMultipart()
         msg['Subject'] = 'Your Error Ticket Summary Report'
         msg['From'] = 'ohrivibhav@gmail.com'
         msg['To'] = to_email
+
         body = MIMEText('Attached is the summary report you generated.', 'plain')
         msg.attach(body)
+
         part = MIMEApplication(attachment["Data"])
         part.add_header('Content-Disposition', 'attachment', filename=attachment["Filename"])
         msg.attach(part)
-        response = ses.send_raw_email(
+
+        ses.send_raw_email(
             Source=msg['From'],
             Destinations=[msg['To']],
             RawMessage={'Data': msg.as_string()}
         )
         return {"message": "Email with report sent successfully."}
     except ClientError as e:
-        raise HTTPException(status_code=500, detail=f"Email failed to send: {e.response['Error']['Message']}")
+        raise HTTPException(status_code=500, detail=f"Email failed: {e.response['Error']['Message']}")
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Unexpected error: {str(e)}")
 
+# ------------------------------
+# Toggle Public Data
+# ------------------------------
 @app.post("/toggle-public/")
 def toggle_public_data(public: bool, token: str = Depends(oauth2_scheme), db: Session = Depends(get_db)):
     payload = verify_access_token(token.credentials)
