@@ -39,7 +39,11 @@ app.add_middleware(
 UPLOAD_FOLDER = "./uploads"
 os.makedirs(UPLOAD_FOLDER, exist_ok=True)
 
-qdrant = QdrantClient(":memory:")
+#qdrant = QdrantClient(":memory:")
+qdrant = QdrantClient(
+    url=os.getenv("QDRANT_URL"),
+    api_key=os.getenv("QDRANT_API_KEY")
+)
 collection_name = "user_docs"
 qdrant.recreate_collection(
     collection_name=collection_name,
