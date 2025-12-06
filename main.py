@@ -19,8 +19,8 @@ from transformers import pipeline
 
 print("Loading local summarization and chat models...")
 
-summarizer = pipeline("summarization", model="sshleifer/distilbart-cnn-12-6")
-chat_model = pipeline("text-generation", model="google/flan-t5-small")
+summarizer = pipeline("summarization", model="facebook/bart-large-cnn")
+chat_model = pipeline("text-generation", model="mistralai/Mistral-7B-Instruct-v0.2")
 
 Base.metadata.create_all(bind=engine)
 oauth2_scheme = HTTPBearer()
